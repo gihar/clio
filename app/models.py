@@ -75,6 +75,20 @@ CREATE TABLE IF NOT EXISTS join_requests (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+-- Таблица спам-пометок: юзеры, которых антиспам-бот замутил намертво.
+-- Их сообщения исключаются из аналитических выборок (дайджест/стратегия).
+CREATE TABLE IF NOT EXISTS spam_users (
+    chat_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    muted_at TIMESTAMPTZ NOT NULL,
+    muted_by BIGINT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    PRIMARY KEY (chat_id, user_id),
+    FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 -- Индексы для оптимизации запросов (кроме message_type - создаётся после миграций)
 CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);
 CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id);
@@ -311,6 +325,38 @@ async def save_message(msg: Message, is_edit: bool = False):
                 msg.date,
                 json.dumps(msg.to_dict()),
             ))
+
+
+async def flag_spam_user(
+    chat_id: int,
+    user_id: int,
+    muted_at: datetime,
+    muted_by: Optional[int] = None,
+    *,
+    user: Optional[User] = None,
+    chat: Optional[Chat] = None,
+) -> None:
+    """Помечает юзера как спамера в чате (UPSERT по (chat_id, user_id)).
+
+    Если переданы объекты user/chat из события — апсертит их в users/chats,
+    чтобы FK на spam_users выполнялся даже если сообщений спамера ещё не было.
+    """
+    if user is not None:
+        await save_user(user)
+    if chat is not None:
+        await save_chat(chat)
+
+    async with get_cursor() as cur:
+        await cur.execute(
+            """
+            INSERT INTO spam_users (chat_id, user_id, muted_at, muted_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (chat_id, user_id) DO UPDATE SET
+                muted_at = EXCLUDED.muted_at,
+                muted_by = EXCLUDED.muted_by;
+            """,
+            (chat_id, user_id, muted_at, muted_by),
+        )
 
 
 async def save_join_request_fields(
@@ -848,6 +894,10 @@ async def get_messages_for_summary(chat_id: int, limit: int = 500) -> List[Dict[
             WHERE m.chat_id = %s
               AND m.sent_at >= NOW() - INTERVAL '24 hours'
               AND m.text IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM spam_users su
+                  WHERE su.chat_id = m.chat_id AND su.user_id = m.user_id
+              )
             ORDER BY m.sent_at ASC
             LIMIT %s
         """, (chat_id, limit))
@@ -899,6 +949,10 @@ async def get_messages_for_period(
             WHERE m.chat_id = %s
               AND m.sent_at >= NOW() - INTERVAL '{days} days'
               AND (m.text IS NOT NULL OR m.caption IS NOT NULL)
+              AND NOT EXISTS (
+                  SELECT 1 FROM spam_users su
+                  WHERE su.chat_id = m.chat_id AND su.user_id = m.user_id
+              )
             ORDER BY m.sent_at DESC
             LIMIT %s
         """, (chat_id, limit))

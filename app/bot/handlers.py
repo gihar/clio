@@ -15,7 +15,9 @@ from ..models import (
     save_join_request_fields,
     get_pending_fresh_join_requests,
     mark_join_requests_status,
+    flag_spam_user,
 )
+from .spam_detection import is_spam_mute
 
 logger = logging.getLogger(__name__)
 _clean_join_requests_lock = asyncio.Lock()
@@ -124,6 +126,52 @@ async def edited_message_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
     except Exception as e:
         logger.error(f"Failed to update message {msg.message_id}: {e}")
+
+
+async def chat_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ловит действия над участниками: полный бессрочный мут → пометка спамера.
+
+    Антиспам-бот мутит спамера намертво (restrictChatMember без прав писать,
+    без срока). Это событие — наш сигнал «спамер»; его сообщения после этого
+    исключаются из аналитических выборок (дайджест/стратегия).
+    """
+    cmu = update.chat_member
+    if not cmu:
+        return
+
+    chat = cmu.chat
+    if chat.type not in ("group", "supergroup"):
+        return
+
+    new = cmu.new_chat_member
+    # can_send_messages / until_date есть только у ChatMemberRestricted;
+    # у остальных статусов их нет → getattr вернёт None → не спам.
+    can_send = getattr(new, "can_send_messages", None)
+    until_date = getattr(new, "until_date", None)
+
+    if not is_spam_mute(new.status, can_send, until_date):
+        return
+
+    target = new.user
+    muted_by = cmu.from_user.id if cmu.from_user else None
+
+    try:
+        await flag_spam_user(
+            chat_id=chat.id,
+            user_id=target.id,
+            muted_at=cmu.date,
+            muted_by=muted_by,
+            user=target,
+            chat=chat,
+        )
+        logger.info(
+            f"Flagged spam user {target.id} in chat {chat.id} "
+            f"({chat.title or 'No title'}), muted_by={muted_by}"
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to flag spam user {target.id} in chat {chat.id}: {e}"
+        )
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):

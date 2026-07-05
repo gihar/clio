@@ -1,0 +1,4 @@
+# Dev/test dependencies — NOT installed on Railway/production (requirements.txt).
+# Install locally with: pip install -r requirements-dev.txt
+pytest==9.1.1
+pytest-asyncio==1.4.0
