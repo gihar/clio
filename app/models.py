@@ -359,6 +359,15 @@ async def flag_spam_user(
         )
 
 
+async def unflag_spam_user(chat_id: int, user_id: int) -> None:
+    """Снимает спам-пометку с юзера (размут). No-op, если пометки не было."""
+    async with get_cursor() as cur:
+        await cur.execute(
+            "DELETE FROM spam_users WHERE chat_id = %s AND user_id = %s;",
+            (chat_id, user_id),
+        )
+
+
 async def save_join_request_fields(
     user_id: int,
     chat_id: int,

@@ -35,3 +35,31 @@ def is_spam_mute(
         and new_can_send_messages is False
         and _is_indefinite(new_until_date)
     )
+
+
+def _can_send(status: str, can_send_messages: Optional[bool]) -> bool:
+    """Может ли участник в этом состоянии отправлять сообщения?"""
+    if status in ("member", "administrator", "creator"):
+        return True
+    if status == "restricted":
+        return can_send_messages is True
+    return False  # kicked, left
+
+
+def is_unmute(
+    old_status: str,
+    old_can_send_messages: Optional[bool],
+    old_until_date: Optional[datetime],
+    new_status: str,
+    new_can_send_messages: Optional[bool],
+    new_until_date: Optional[datetime],
+) -> bool:
+    """True, если участник вышел из спам-мута обратно в возможность писать.
+
+    Сигнал «снять пометку спамера»: раньше был наш полный бессрочный мут,
+    а теперь снова может отправлять сообщения.
+    """
+    return (
+        is_spam_mute(old_status, old_can_send_messages, old_until_date)
+        and _can_send(new_status, new_can_send_messages)
+    )
