@@ -16,8 +16,9 @@ from ..models import (
     get_pending_fresh_join_requests,
     mark_join_requests_status,
     flag_spam_user,
+    unflag_spam_user,
 )
-from .spam_detection import is_spam_mute
+from .spam_detection import is_spam_mute, is_unmute
 
 logger = logging.getLogger(__name__)
 _clean_join_requests_lock = asyncio.Lock()
@@ -144,34 +145,48 @@ async def chat_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     new = cmu.new_chat_member
+    old = cmu.old_chat_member
     # can_send_messages / until_date есть только у ChatMemberRestricted;
-    # у остальных статусов их нет → getattr вернёт None → не спам.
-    can_send = getattr(new, "can_send_messages", None)
-    until_date = getattr(new, "until_date", None)
-
-    if not is_spam_mute(new.status, can_send, until_date):
-        return
-
+    # у остальных статусов их нет → getattr вернёт None.
+    new_can_send = getattr(new, "can_send_messages", None)
+    new_until = getattr(new, "until_date", None)
+    old_can_send = getattr(old, "can_send_messages", None)
+    old_until = getattr(old, "until_date", None)
     target = new.user
-    muted_by = cmu.from_user.id if cmu.from_user else None
 
-    try:
-        await flag_spam_user(
-            chat_id=chat.id,
-            user_id=target.id,
-            muted_at=cmu.date,
-            muted_by=muted_by,
-            user=target,
-            chat=chat,
-        )
-        logger.info(
-            f"Flagged spam user {target.id} in chat {chat.id} "
-            f"({chat.title or 'No title'}), muted_by={muted_by}"
-        )
-    except Exception as e:
-        logger.error(
-            f"Failed to flag spam user {target.id} in chat {chat.id}: {e}"
-        )
+    if is_spam_mute(new.status, new_can_send, new_until):
+        muted_by = cmu.from_user.id if cmu.from_user else None
+        try:
+            await flag_spam_user(
+                chat_id=chat.id,
+                user_id=target.id,
+                muted_at=cmu.date,
+                muted_by=muted_by,
+                user=target,
+                chat=chat,
+            )
+            logger.info(
+                f"Flagged spam user {target.id} in chat {chat.id} "
+                f"({chat.title or 'No title'}), muted_by={muted_by}"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to flag spam user {target.id} in chat {chat.id}: {e}"
+            )
+    elif is_unmute(
+        old.status, old_can_send, old_until,
+        new.status, new_can_send, new_until,
+    ):
+        try:
+            await unflag_spam_user(chat_id=chat.id, user_id=target.id)
+            logger.info(
+                f"Unflagged spam user {target.id} in chat {chat.id} "
+                f"({chat.title or 'No title'}) after unmute"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to unflag spam user {target.id} in chat {chat.id}: {e}"
+            )
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
