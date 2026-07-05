@@ -919,6 +919,10 @@ async def get_daily_message_counts(chat_id: int, days: int = 7) -> List[Dict[str
             FROM messages m
             WHERE m.chat_id = %s
               AND m.sent_at >= NOW() - INTERVAL '{days} days'
+              AND NOT EXISTS (
+                  SELECT 1 FROM spam_users su
+                  WHERE su.chat_id = m.chat_id AND su.user_id = m.user_id
+              )
             GROUP BY day
             ORDER BY day ASC
         """, (chat_id,))

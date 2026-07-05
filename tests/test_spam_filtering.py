@@ -10,6 +10,7 @@ from app.models import (
     save_chat,
     get_messages_for_summary,
     get_messages_for_period,
+    get_daily_message_counts,
     get_chat_messages,
 )
 from app.database import get_cursor
@@ -74,3 +75,39 @@ async def test_raw_admin_view_still_shows_flagged_spammer(db):
 
     assert "hello from alice" in texts
     assert "SPAM buy now" in texts
+
+
+async def test_daily_counts_exclude_flagged_spammer(db):
+    """Недельная активность (идёт в LLM-аналитику) не учитывает сообщения спамера."""
+    await _seed_chat_with_flagged_spammer()
+
+    counts = await get_daily_message_counts(CHAT.id, days=7)
+    total = sum(c["count"] for c in counts)
+
+    assert total == 1  # только Alice; сообщение спамера исключено
+
+
+async def test_flag_is_chat_scoped(db):
+    """Пометка спамера скоупится по чату: замученный в чате A виден в чате B."""
+    chat_b = Chat(id=-100999, type="supergroup", title="Other chat")
+    await save_chat(CHAT)
+    await save_chat(chat_b)
+    await save_user(SPAMMER)
+    async with get_cursor() as cur:
+        await cur.execute(
+            "INSERT INTO messages (message_id, chat_id, user_id, message_type, text, sent_at) "
+            "VALUES (10, %s, %s, 'text', 'msg in chat A', NOW()), "
+            "(11, %s, %s, 'text', 'msg in chat B', NOW());",
+            (CHAT.id, SPAMMER.id, chat_b.id, SPAMMER.id),
+        )
+    # мутим спамера ТОЛЬКО в чате A
+    await flag_spam_user(
+        chat_id=CHAT.id, user_id=SPAMMER.id,
+        muted_at=datetime(2026, 7, 5, 12, 0, tzinfo=timezone.utc), muted_by=555,
+    )
+
+    a_texts = [m["text"] for m in await get_messages_for_summary(CHAT.id)]
+    b_texts = [m["text"] for m in await get_messages_for_summary(chat_b.id)]
+
+    assert "msg in chat A" not in a_texts   # исключён в A
+    assert "msg in chat B" in b_texts        # но виден в B — пометка скоупится по чату
