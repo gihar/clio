@@ -1,9 +1,21 @@
 """Инициализация и запуск Telegram бота."""
 
 import logging
-from telegram.ext import Application, ChatJoinRequestHandler, MessageHandler, filters
+from telegram.ext import (
+    Application,
+    ChatJoinRequestHandler,
+    ChatMemberHandler,
+    MessageHandler,
+    filters,
+)
 
-from .handlers import join_request_handler, message_handler, edited_message_handler, error_handler
+from .handlers import (
+    join_request_handler,
+    message_handler,
+    edited_message_handler,
+    chat_member_handler,
+    error_handler,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +42,14 @@ def create_bot(token: str) -> Application:
             edited_message_handler
         )
     )
-    
+
+    # Изменения статуса участников (муты от антиспама → пометка спамеров).
+    # CHAT_MEMBER, а не MY_CHAT_MEMBER: нужны события о ДРУГИХ участниках
+    # (прилетают, только если бот — админ в чате).
+    application.add_handler(
+        ChatMemberHandler(chat_member_handler, ChatMemberHandler.CHAT_MEMBER)
+    )
+
     # Обработчик ошибок
     application.add_error_handler(error_handler)
     
@@ -45,9 +64,14 @@ async def start_bot(application: Application):
     
     await application.initialize()
     await application.start()
+    # drop_pending_updates=False: chat_member-муты от антиспама — одноразовые
+    # апдейты, Telegram их не переотдаёт. Если дропать очередь на старте, мут,
+    # прилетевший во время редеплоя/простоя, потеряется навсегда, и спамер
+    # останется в дайджестах. Ценой переобработки небольшого бэклога на старте
+    # (сохранения идемпотентны: ON CONFLICT) не теряем спам-сигнал.
     await application.updater.start_polling(
-        drop_pending_updates=True,
-        allowed_updates=["message", "edited_message", "chat_join_request"]
+        drop_pending_updates=False,
+        allowed_updates=["message", "edited_message", "chat_join_request", "chat_member"]
     )
     
     logger.info("Bot is running")
