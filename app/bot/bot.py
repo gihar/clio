@@ -64,8 +64,13 @@ async def start_bot(application: Application):
     
     await application.initialize()
     await application.start()
+    # drop_pending_updates=False: chat_member-муты от антиспама — одноразовые
+    # апдейты, Telegram их не переотдаёт. Если дропать очередь на старте, мут,
+    # прилетевший во время редеплоя/простоя, потеряется навсегда, и спамер
+    # останется в дайджестах. Ценой переобработки небольшого бэклога на старте
+    # (сохранения идемпотентны: ON CONFLICT) не теряем спам-сигнал.
     await application.updater.start_polling(
-        drop_pending_updates=True,
+        drop_pending_updates=False,
         allowed_updates=["message", "edited_message", "chat_join_request", "chat_member"]
     )
     
