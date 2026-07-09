@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from telegram import User, Chat
 
 from app.spam_flags import flag_spam_user, unflag_spam_user
-from app.ingest import save_user, save_chat
+from app.ingest import save_user, save_chat, record_message
 from app.message_reads.digest import get_messages_for_summary
 from app.database import get_cursor
 
@@ -42,13 +42,14 @@ async def test_unmute_restores_messages_to_summary(db):
     await save_chat(CHAT)
     await save_user(ALICE)
     await save_user(SPAMMER)
-    async with get_cursor() as cur:
-        await cur.execute(
-            "INSERT INTO messages (message_id, chat_id, user_id, message_type, text, sent_at) "
-            "VALUES (1, %s, %s, 'text', 'hello from alice', NOW()), "
-            "(2, %s, %s, 'text', 'SPAM buy now', NOW());",
-            (CHAT.id, ALICE.id, CHAT.id, SPAMMER.id),
-        )
+    await record_message(
+        chat_id=CHAT.id, message_id=1, user_id=ALICE.id,
+        sent_at=datetime.now(timezone.utc), text="hello from alice",
+    )
+    await record_message(
+        chat_id=CHAT.id, message_id=2, user_id=SPAMMER.id,
+        sent_at=datetime.now(timezone.utc), text="SPAM buy now",
+    )
     await flag_spam_user(chat_id=CHAT.id, user_id=SPAMMER.id, muted_at=MUTED_AT, muted_by=555)
 
     # пока помечен — исключён
