@@ -17,13 +17,15 @@ from ..database import get_cursor
 from ..models import (
     get_stats,
     get_chats_with_stats,
-    get_chat_messages,
-    get_chat_messages_by_date,
-    get_chat_messages_by_date_range,
     get_chat_by_id,
     get_users,
     get_dashboard_data,
     get_join_requests,
+)
+from ..message_reads.raw import (
+    get_chat_messages,
+    get_chat_messages_by_date,
+    get_chat_messages_by_date_range,
 )
 from ..services.summary import generate_chat_summary
 from ..services.analytics import generate_chat_analytics

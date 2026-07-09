@@ -3,7 +3,8 @@
 import logging
 from typing import Optional, Dict, Any, List
 
-from ..models import get_messages_for_summary, get_chat_by_id
+from ..message_reads.digest import get_messages_for_summary
+from ..models import get_chat_by_id
 from .openrouter import generate_completion
 
 logger = logging.getLogger(__name__)

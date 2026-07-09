@@ -4,7 +4,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 
-from ..models import get_daily_message_counts, get_chat_by_id
+from ..message_reads.digest import get_daily_message_counts
+from ..models import get_chat_by_id
 from .openrouter import generate_completion
 
 logger = logging.getLogger(__name__)
