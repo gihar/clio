@@ -58,3 +58,16 @@ async def get_cursor():
     async with get_connection() as conn:
         async with conn.cursor() as cur:
             yield cur
+
+
+async def ping() -> bool:
+    """Проверяет доступность БД (``SELECT 1``). Не бросает исключений наружу —
+    любой отказ (пул не инициализирован, обрыв соединения и т.п.) даёт False."""
+    try:
+        async with get_cursor() as cur:
+            await cur.execute("SELECT 1")
+            result = await cur.fetchone()
+        return bool(result and result[0] == 1)
+    except Exception as e:
+        logger.error(f"Database ping failed: {e}")
+        return False
