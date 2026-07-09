@@ -117,3 +117,34 @@ async def test_api_chat_summary_without_openrouter_returns_503(client, monkeypat
         "success": False,
         "error": "OpenRouter API не настроен",
     }
+
+
+async def test_api_chat_join_requests_rejects_unknown_status(client, monkeypatch):
+    _configure()
+
+    async def fail_if_called(chat_id, limit, offset, status):
+        raise AssertionError("get_join_requests must not be called for an invalid status")
+
+    monkeypatch.setattr(api_routes, "get_join_requests", fail_if_called)
+
+    response = await client.get("/api/chats/1/join-requests?status=bogus")
+
+    assert response.status == 400
+    assert await response.json() == {"error": "invalid status"}
+
+
+async def test_api_chat_join_requests_accepts_known_status(client, monkeypatch):
+    _configure()
+
+    async def fake_get_join_requests(chat_id, limit, offset, status):
+        assert status == "declined"
+        return [{"id": 1, "status": "declined"}]
+
+    monkeypatch.setattr(api_routes, "get_join_requests", fake_get_join_requests)
+
+    response = await client.get("/api/chats/1/join-requests?status=declined")
+
+    assert response.status == 200
+    body = await response.json()
+    assert body["count"] == 1
+    assert body["status"] == "declined"

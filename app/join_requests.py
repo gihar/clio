@@ -7,6 +7,7 @@ from telegram import User, Chat
 
 from .database import get_cursor
 from .ingest import save_user, save_chat
+from .join_request_status import JoinRequestStatus
 
 
 async def save_join_request_fields(
@@ -34,16 +35,19 @@ async def save_join_request_fields(
         await cur.execute(
             """
             INSERT INTO join_requests (user_id, chat_id, username, first_name, bio, request_date, status)
-            VALUES (%s, %s, %s, %s, %s, %s, 'pending')
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (user_id, chat_id) DO UPDATE SET
                 username = EXCLUDED.username,
                 first_name = EXCLUDED.first_name,
                 bio = EXCLUDED.bio,
                 request_date = EXCLUDED.request_date,
-                status = 'pending'
+                status = %s
             RETURNING id;
             """,
-            (user_id, chat_id, username, first_name, bio, request_date),
+            (
+                user_id, chat_id, username, first_name, bio, request_date,
+                JoinRequestStatus.PENDING, JoinRequestStatus.PENDING,
+            ),
         )
         row = await cur.fetchone()
         return int(row[0]) if row else None
@@ -57,12 +61,12 @@ async def get_pending_fresh_join_requests(chat_id: int, min_user_id: int, limit:
             SELECT id, user_id, chat_id, username, first_name, request_date
             FROM join_requests
             WHERE chat_id = %s
-              AND status = 'pending'
+              AND status = %s
               AND user_id >= %s
             ORDER BY request_date ASC
             LIMIT %s;
             """,
-            (chat_id, min_user_id, limit),
+            (chat_id, JoinRequestStatus.PENDING, min_user_id, limit),
         )
         rows = await cur.fetchall()
 
@@ -79,7 +83,7 @@ async def get_pending_fresh_join_requests(chat_id: int, min_user_id: int, limit:
     ]
 
 
-async def mark_join_requests_status(ids: List[int], status: str) -> int:
+async def mark_join_requests_status(ids: List[int], status: JoinRequestStatus) -> int:
     """Update join_requests.status for given primary keys, return updated count."""
     if not ids:
         return 0
@@ -96,7 +100,7 @@ async def get_join_requests(
     chat_id: int,
     limit: int = 100,
     offset: int = 0,
-    status: Optional[str] = None,
+    status: Optional[JoinRequestStatus] = None,
 ) -> List[Dict[str, Any]]:
     """Get join requests for a chat (for admin/API inspection)."""
     async with get_cursor() as cur:
