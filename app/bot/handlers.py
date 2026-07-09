@@ -11,6 +11,7 @@ from telegram.error import BadRequest, TelegramError
 
 from ..config import get_config
 from ..ingest import save_message
+from ..join_request_status import JoinRequestStatus
 from ..join_requests import (
     save_join_request_fields,
     get_pending_fresh_join_requests,
@@ -225,14 +226,14 @@ async def process_pending_fresh_join_requests(
             err_msg = ""
             try:
                 await bot.decline_chat_join_request(chat_id=chat_id, user_id=user_id)
-                await mark_join_requests_status([req_id], "declined")
+                await mark_join_requests_status([req_id], JoinRequestStatus.DECLINED)
                 declined += 1
-                outcome = "declined"
+                outcome = JoinRequestStatus.DECLINED
             except BadRequest as e:
                 err_msg = f"{type(e).__name__}: {e}"
                 if _is_expired_join_request_error(str(e)):
-                    await mark_join_requests_status([req_id], "expired")
-                    outcome = "expired"
+                    await mark_join_requests_status([req_id], JoinRequestStatus.EXPIRED)
+                    outcome = JoinRequestStatus.EXPIRED
             except TelegramError as e:
                 err_msg = f"{type(e).__name__}: {e}"
             except Exception as e:

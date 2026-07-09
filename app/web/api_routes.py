@@ -14,6 +14,7 @@ from ..admin_reads import (
     get_chat_by_id,
     get_dashboard_data,
 )
+from ..join_request_status import JoinRequestStatus
 from ..join_requests import get_join_requests
 from ..message_reads.raw import (
     get_chat_messages,
@@ -225,7 +226,7 @@ async def api_chat_join_requests(request: web.Request):
     offset = int(request.query.get("offset", 0))
     status = request.query.get("status")
 
-    if status and status not in {"pending", "declined", "expired"}:
+    if status and status not in JoinRequestStatus:
         return {"error": "invalid status"}, 400
 
     reqs = await get_join_requests(chat_id, limit=limit, offset=offset, status=status)
