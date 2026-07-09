@@ -68,26 +68,22 @@ async def test_raw_messages_pagination_and_type_filter(db):
     assert [m["text"] for m in page2] == ["text one"]
 
 
-async def test_raw_messages_for_day_moscow_boundary(db):
-    """Каст дня переносится ровно там, где переносился и до рефакторинга.
+async def test_raw_messages_for_day_boundary_is_legacy_utc_minus_3(db):
+    """Пин текущей (баговой) границы дня, унаследованной бит-в-бит из app/models.py.
 
-    ВНИМАНИЕ (расхождение с PRD-01 invariant #3, см. эскалацию агенту-лиду):
-    формула `(sent_at AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Moscow')::date`,
-    унаследованная бит-в-бит из app/models.py, на TIMESTAMPTZ-колонке даёт
-    границу дня в 03:00 UTC, а не в 21:00 UTC предыдущего дня, как
-    сформулировано в тексте PRD ("день начинается в 21:00 UTC предыдущего
-    дня"). Это существующий баг продакшн-кода (двойной AT TIME ZONE — идиома
-    для timestamp без зоны, для timestamptz даёт обратный знак смещения),
-    предшествующий этому PRD. FR-6 требует сохранить семантику КАЖДОГО
-    вызова точно, поэтому здесь зафиксировано фактическое (баговое)
-    поведение, а не поведение, описанное в тексте инварианта. Фикс —
-    отдельный тикет вне скоупа PRD-01 (это меняет прод-данные в экспортах).
+    Формула `(sent_at AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Moscow')::date`
+    на TIMESTAMPTZ-колонке ``sent_at`` двигает границу дня на 03:00 UTC
+    (фактически UTC-3), а не на 21:00 UTC предыдущего дня, как подразумевает
+    "московский" (UTC+3) в названии. Это существующий баг продакшн-кода,
+    предшествующий PRD-01; FR-6 требует сохранить семантику ТОЧНО, поэтому
+    тест фиксирует фактическое поведение, а не намеченное. Фикс — отдельный
+    тикет вне скоупа PRD-01: https://github.com/gihar/clio/issues/9.
     """
     await save_chat(CHAT)
     await save_user(ALICE)
 
     # 02:59 UTC -> текущий каст относит к предыдущему дню (граница проходит
-    # по 03:00 UTC, а не по 21:00 UTC, как должно быть по инварианту #3).
+    # по 03:00 UTC, а не по 21:00 UTC, как было бы при корректном UTC+3).
     before_boundary = datetime(2026, 7, 8, 2, 59, tzinfo=timezone.utc)
     at_boundary = datetime(2026, 7, 8, 3, 0, tzinfo=timezone.utc)
     await _insert_message(20, ALICE.id, "before 03:00 utc", before_boundary)

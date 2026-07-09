@@ -1,14 +1,10 @@
-"""Digest-visible выборки сообщений: исключают помеченных спамеров.
-
-Используются для генерации саммари, контент-стратегии и аналитики.
-См. докстринг ``app.message_reads`` про инвариант digest vs raw.
-"""
+"""Digest-выборки: исключают помеченных спамеров (spam_users) — для саммари, стратегии, аналитики."""
 
 import logging
 from typing import Any, Dict, List
 
 from ..database import get_cursor
-from . import MOSCOW_DAY_SQL, SPAM_EXCLUSION_SQL
+from ._shared import MOSCOW_DAY_SQL, SPAM_EXCLUSION_SQL
 
 logger = logging.getLogger(__name__)
 

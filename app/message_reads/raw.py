@@ -1,15 +1,10 @@
-"""Raw выборки сообщений: НЕ фильтруют помеченных спамеров.
-
-Используются сырой вьюхой админки и экспортом. Скоуп зафиксирован
-tests/test_spam_filtering.py:70 — намеренно не исключают спам.
-См. докстринг ``app.message_reads`` про инвариант digest vs raw.
-"""
+"""Raw-выборки — сырая вьюха админки: НЕ фильтрует, это намеренно, скоуп зафиксирован tests/test_spam_filtering.py."""
 
 import logging
 from typing import Any, Dict, List, Optional
 
 from ..database import get_cursor
-from . import FULL_MESSAGE_COLUMNS_SQL, MOSCOW_DAY_SQL, row_to_full_message
+from ._shared import FULL_MESSAGE_COLUMNS_SQL, MOSCOW_DAY_SQL, row_to_full_message
 
 logger = logging.getLogger(__name__)
 
