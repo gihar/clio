@@ -9,8 +9,8 @@ from app.models import (
     unflag_spam_user,
     save_user,
     save_chat,
-    get_messages_for_summary,
 )
+from app.message_reads.digest import get_messages_for_summary
 from app.database import get_cursor
 
 CHAT = Chat(id=-100888, type="supergroup", title="Unmute test")
