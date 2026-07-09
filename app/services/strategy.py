@@ -1,11 +1,11 @@
-"""Сервис генерации контент-стратегии для чатов."""
+"""Сервис генерации контент-стратегии — тонкий вызов run_report со своим spec'ом."""
 
+import functools
 import logging
-from typing import Dict, Any, List
+from typing import Any, Callable, Dict, List, Optional
 
 from ..message_reads.digest import get_messages_for_period
-from ..models import get_chat_by_id
-from .openrouter import generate_completion
+from .reports import ReportSpec, run_report
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +34,11 @@ STRATEGY_PROMPT_TEMPLATE = """Проанализируй сообщения из
 
 Максимум 300 слов."""
 
+INVALID_PERIOD_ERROR = "Неверный период. Используйте 'week' или 'month'"
+LLM_FAILURE_ERROR = "Не удалось сгенерировать отчёт. Попробуйте позже."
 
-def _format_messages_for_strategy(messages: List[Dict[str, Any]]) -> str:
+
+def format_messages_for_strategy(messages: List[Dict[str, Any]]) -> str:
     """Форматирует сообщения для промпта стратегии."""
     lines = []
     for msg in messages:
@@ -52,6 +55,61 @@ def _format_messages_for_strategy(messages: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def build_strategy_spec(period: str, fetch: Optional[Callable] = None) -> ReportSpec:
+    """Собирает ReportSpec для стратегии за ``period`` (уже провалидирован).
+
+    ``fetch`` подменяется в тестах.
+    """
+    days = 7 if period == "week" else 30
+    period_ru = "неделю" if period == "week" else "месяц"
+    empty_error = f"Нет сообщений за последн{'юю неделю' if period == 'week' else 'ий месяц'}"
+
+    def build_prompt(chat: Dict[str, Any], messages: List[Dict[str, Any]]):
+        chat_type = chat.get("type", "group")
+        chat_type_ru = "канала" if chat_type == "channel" else "группы"
+        chat_title = chat.get("title") or f"Chat {chat['id']}"
+
+        # Сообщения отсортированы по убыванию (новые первые) — переворачиваем
+        # для хронологического порядка в промпте.
+        date_from = messages[-1]["sent_at"]
+        date_to = messages[0]["sent_at"]
+        date_range = f"{date_from.strftime('%d.%m.%Y')} — {date_to.strftime('%d.%m.%Y')}"
+
+        prompt = STRATEGY_PROMPT_TEMPLATE.format(
+            chat_type_ru=chat_type_ru,
+            period_ru=period_ru,
+            chat_title=chat_title,
+            date_range=date_range,
+            count=len(messages),
+            messages=format_messages_for_strategy(list(reversed(messages))),
+        )
+        extra = {
+            "chat_type": chat_type,
+            "period": period,
+            "date_range": date_range,
+            "messages_analyzed": len(messages),
+        }
+        return prompt, extra
+
+    def build_result(outcome: str, extra: Optional[Dict[str, Any]] = None, text: Optional[str] = None) -> Dict[str, Any]:
+        if outcome == "not_found":
+            return {"success": False, "error": "Чат не найден"}
+        if outcome == "empty":
+            return {"success": False, "error": empty_error}
+        if outcome == "llm_failure":
+            return {"success": False, "error": LLM_FAILURE_ERROR, **extra}
+        return {"success": True, "error": None, "report": text, **extra}
+
+    return ReportSpec(
+        fetch=fetch or functools.partial(get_messages_for_period, days=days, limit=500),
+        build_prompt=build_prompt,
+        system_prompt=STRATEGY_SYSTEM_PROMPT,
+        max_tokens=800,
+        timeout=45.0,
+        build_result=build_result,
+    )
+
+
 async def generate_content_strategy(chat_id: int, period: str = "week") -> Dict[str, Any]:
     """Генерирует контент-стратегию для чата.
 
@@ -62,81 +120,8 @@ async def generate_content_strategy(chat_id: int, period: str = "week") -> Dict[
     Returns:
         Dict с полями: success, chat_type, period, date_range, messages_analyzed, report, error
     """
-    # Валидация периода
     if period not in ("week", "month"):
-        return {
-            "success": False,
-            "error": "Неверный период. Используйте 'week' или 'month'",
-        }
+        return {"success": False, "error": INVALID_PERIOD_ERROR}
 
-    days = 7 if period == "week" else 30
-    period_ru = "неделю" if period == "week" else "месяц"
-
-    # Получаем информацию о чате
-    chat = await get_chat_by_id(chat_id)
-    if not chat:
-        return {
-            "success": False,
-            "error": "Чат не найден",
-        }
-
-    chat_type = chat.get("type", "group")
-    chat_type_ru = "канала" if chat_type == "channel" else "группы"
-    chat_title = chat.get("title") or f"Chat {chat_id}"
-
-    # Получаем сообщения за период
-    messages = await get_messages_for_period(chat_id, days=days, limit=500)
-
-    if not messages:
-        return {
-            "success": False,
-            "error": f"Нет сообщений за последн{'юю неделю' if period == 'week' else 'ий месяц'}",
-        }
-
-    # Формируем диапазон дат
-    # Сообщения отсортированы по убыванию (новые первые)
-    date_from = messages[-1]["sent_at"]
-    date_to = messages[0]["sent_at"]
-    date_range = f"{date_from.strftime('%d.%m.%Y')} — {date_to.strftime('%d.%m.%Y')}"
-
-    # Форматируем сообщения (переворачиваем для хронологического порядка)
-    formatted_messages = _format_messages_for_strategy(list(reversed(messages)))
-
-    # Формируем промпт
-    prompt = STRATEGY_PROMPT_TEMPLATE.format(
-        chat_type_ru=chat_type_ru,
-        period_ru=period_ru,
-        chat_title=chat_title,
-        date_range=date_range,
-        count=len(messages),
-        messages=formatted_messages,
-    )
-
-    # Генерируем отчёт
-    logger.info(f"Generating strategy for chat {chat_id}, period={period}, {len(messages)} messages")
-    report = await generate_completion(
-        prompt=prompt,
-        system_prompt=STRATEGY_SYSTEM_PROMPT,
-        max_tokens=800,
-        timeout=45.0,
-    )
-
-    if not report:
-        return {
-            "success": False,
-            "error": "Не удалось сгенерировать отчёт. Попробуйте позже.",
-            "chat_type": chat_type,
-            "period": period,
-            "date_range": date_range,
-            "messages_analyzed": len(messages),
-        }
-
-    return {
-        "success": True,
-        "error": None,
-        "chat_type": chat_type,
-        "period": period,
-        "date_range": date_range,
-        "messages_analyzed": len(messages),
-        "report": report,
-    }
+    logger.info(f"Generating strategy for chat {chat_id}, period={period}")
+    return await run_report(build_strategy_spec(period), chat_id)
