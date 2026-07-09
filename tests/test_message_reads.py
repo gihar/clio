@@ -4,8 +4,10 @@ from datetime import datetime, timedelta, timezone
 
 from telegram import User, Chat
 
+from app.database import get_cursor
 from app.ingest import save_user, save_chat, record_message
-from app.message_reads.digest import get_messages_for_summary
+from app.message_reads._shared import MOSCOW_DAY_SQL
+from app.message_reads.digest import get_daily_message_counts, get_messages_for_summary
 from app.message_reads.raw import get_chat_messages, get_chat_messages_by_date
 
 CHAT = Chat(id=-100555, type="supergroup", title="Message reads boundary test")
@@ -67,29 +69,72 @@ async def test_raw_messages_pagination_and_type_filter(db):
     assert [m["text"] for m in page2] == ["text one"]
 
 
-async def test_raw_messages_for_day_boundary_is_legacy_utc_minus_3(db):
-    """Пин текущей (баговой) границы дня, унаследованной бит-в-бит из app/models.py.
+async def test_raw_messages_for_day_boundary_is_moscow_utc_plus_3(db):
+    """Пин исправленной границы дня: московские сутки переключаются в 21:00 UTC.
 
-    Формула `(sent_at AT TIME ZONE 'UTC' AT TIME ZONE 'Europe/Moscow')::date`
-    на TIMESTAMPTZ-колонке ``sent_at`` двигает границу дня на 03:00 UTC
-    (фактически UTC-3), а не на 21:00 UTC предыдущего дня, как подразумевает
-    "московский" (UTC+3) в названии. Это существующий баг продакшн-кода,
-    предшествующий PRD-01; FR-6 требует сохранить семантику ТОЧНО, поэтому
-    тест фиксирует фактическое поведение, а не намеченное. Фикс — отдельный
-    тикет вне скоупа PRD-01: https://github.com/gihar/clio/issues/9.
+    Формула `(sent_at AT TIME ZONE 'Europe/Moscow')::date` на TIMESTAMPTZ-колонке
+    ``sent_at`` даёт единственный каст временной зоны -- naive-timestamp в
+    московском локальном времени, чей ::date детерминирован и не зависит от
+    session TimeZone. Граница дня верно проходит по 21:00 UTC (UTC+3), а не по
+    03:00 UTC, как было при легаси-баге (см. https://github.com/gihar/clio/issues/9).
     """
     await save_chat(CHAT)
     await save_user(ALICE)
 
-    # 02:59 UTC -> текущий каст относит к предыдущему дню (граница проходит
-    # по 03:00 UTC, а не по 21:00 UTC, как было бы при корректном UTC+3).
-    before_boundary = datetime(2026, 7, 8, 2, 59, tzinfo=timezone.utc)
-    at_boundary = datetime(2026, 7, 8, 3, 0, tzinfo=timezone.utc)
-    await _insert_message(20, ALICE.id, "before 03:00 utc", before_boundary)
-    await _insert_message(21, ALICE.id, "at 03:00 utc", at_boundary)
+    # 20:59 UTC -> ещё московский день D (23:59 MSK, до полуночи).
+    before_boundary = datetime(2026, 7, 8, 20, 59, tzinfo=timezone.utc)
+    # 21:00 UTC -> уже московский день D+1 (00:00 MSK).
+    at_boundary = datetime(2026, 7, 8, 21, 0, tzinfo=timezone.utc)
+    await _insert_message(20, ALICE.id, "before 21:00 utc", before_boundary)
+    await _insert_message(21, ALICE.id, "at 21:00 utc", at_boundary)
 
-    previous_day = await get_chat_messages_by_date(CHAT.id, "2026-07-07")
     same_day = await get_chat_messages_by_date(CHAT.id, "2026-07-08")
+    next_day = await get_chat_messages_by_date(CHAT.id, "2026-07-09")
 
-    assert [m["text"] for m in previous_day] == ["before 03:00 utc"]
-    assert [m["text"] for m in same_day] == ["at 03:00 utc"]
+    assert [m["text"] for m in same_day] == ["before 21:00 utc"]
+    assert [m["text"] for m in next_day] == ["at 21:00 utc"]
+
+
+async def test_daily_message_counts_day_boundary_is_moscow_utc_plus_3(db):
+    """get_daily_message_counts тоже группирует по исправленной московской границе.
+
+    02:59 и 03:00 UTC одного и того же UTC-дня раньше (легаси-баг) попадали в
+    РАЗНЫЕ московские дни (граница была на 03:00 UTC); после фикса оба
+    относятся к ОДНОМУ московскому дню, а 21:00 UTC того же дня уже уходит в
+    следующий (см. https://github.com/gihar/clio/issues/9).
+    """
+    await save_chat(CHAT)
+    await save_user(ALICE)
+
+    await _insert_message(30, ALICE.id, "02:59 utc", datetime(2026, 7, 8, 2, 59, tzinfo=timezone.utc))
+    await _insert_message(31, ALICE.id, "03:00 utc", datetime(2026, 7, 8, 3, 0, tzinfo=timezone.utc))
+    await _insert_message(32, ALICE.id, "21:00 utc", datetime(2026, 7, 8, 21, 0, tzinfo=timezone.utc))
+
+    counts = {c["date"]: c["count"] for c in await get_daily_message_counts(CHAT.id, days=3)}
+
+    assert counts.get("2026-07-08") == 2
+    assert counts.get("2026-07-09") == 1
+
+
+async def test_moscow_day_sql_is_independent_of_session_timezone(db):
+    """MOSCOW_DAY_SQL даёт одинаковый московский день независимо от session TimeZone.
+
+    Легаси-баг (двойной AT TIME ZONE) был подвержен этой зависимости, потому что
+    его финальный ::date каст применялся к TIMESTAMPTZ-результату промежуточного
+    выражения. Однократный `AT TIME ZONE 'Europe/Moscow'` на TIMESTAMPTZ-колонке
+    сразу даёт naive-timestamp, чей ::date уже не привязан к session TimeZone
+    (см. https://github.com/gihar/clio/issues/9).
+    """
+    at_boundary = datetime(2026, 7, 8, 21, 0, tzinfo=timezone.utc)
+    select_expr = MOSCOW_DAY_SQL.replace("m.sent_at", "%s::timestamptz")
+
+    async with get_cursor() as cur:
+        await cur.execute("SET TIME ZONE 'UTC'")
+        await cur.execute(f"SELECT {select_expr}", (at_boundary,))
+        (utc_session_day,) = await cur.fetchone()
+
+        await cur.execute("SET TIME ZONE 'America/New_York'")
+        await cur.execute(f"SELECT {select_expr}", (at_boundary,))
+        (ny_session_day,) = await cur.fetchone()
+
+    assert utc_session_day == ny_session_day == datetime(2026, 7, 9).date()
