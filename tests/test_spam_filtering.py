@@ -8,11 +8,13 @@ from app.models import (
     flag_spam_user,
     save_user,
     save_chat,
+)
+from app.message_reads.digest import (
     get_messages_for_summary,
     get_messages_for_period,
     get_daily_message_counts,
-    get_chat_messages,
 )
+from app.message_reads.raw import get_chat_messages
 from app.database import get_cursor
 
 CHAT = Chat(id=-100777, type="supergroup", title="Filter test")
