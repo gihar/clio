@@ -57,19 +57,11 @@ def _build_prompt(chat: Dict[str, Any], messages: List[Dict[str, Any]]):
     return prompt, {"messages_count": len(messages), "period": period}
 
 
-def _build_result(outcome: str, extra: Optional[Dict[str, Any]] = None, text: Optional[str] = None) -> Dict[str, Any]:
-    if outcome == "not_found":
-        return {"success": False, "error": "Чат не найден", "summary": None, "messages_count": 0, "period": None}
-    if outcome == "empty":
-        return {"success": False, "error": EMPTY_ERROR, "summary": None, "messages_count": 0, "period": None}
-    if outcome == "llm_failure":
-        return {"success": False, "error": LLM_FAILURE_ERROR, "summary": None, **extra}
-    return {"success": True, "error": None, "summary": text, **extra}
+NOT_FOUND_RESULT = {"success": False, "error": "Чат не найден", "summary": None, "messages_count": 0, "period": None}
+EMPTY_RESULT = {"success": False, "error": EMPTY_ERROR, "summary": None, "messages_count": 0, "period": None}
 
 
-def build_summary_spec(
-    fetch: Optional[Callable] = None,
-) -> ReportSpec:
+def build_summary_spec(fetch: Optional[Callable] = None) -> ReportSpec:
     """Собирает ReportSpec для саммари. ``fetch`` подменяется в тестах."""
     return ReportSpec(
         fetch=fetch or functools.partial(get_messages_for_summary, limit=500),
@@ -77,15 +69,14 @@ def build_summary_spec(
         system_prompt=SYSTEM_PROMPT,
         max_tokens=500,
         timeout=30.0,
-        build_result=_build_result,
+        not_found_result=NOT_FOUND_RESULT,
+        empty_result=EMPTY_RESULT,
+        build_failure=lambda extra: {"success": False, "error": LLM_FAILURE_ERROR, "summary": None, **extra},
+        build_success=lambda extra, text: {"success": True, "error": None, "summary": text, **extra},
     )
 
 
 async def generate_chat_summary(chat_id: int) -> Dict[str, Any]:
-    """Генерирует саммари для чата за последние 24 часа.
-
-    Returns:
-        Dict с полями: success, summary, error, messages_count, period
-    """
+    """Генерирует саммари для чата за последние 24 часа."""
     logger.info(f"Generating summary for chat {chat_id}")
     return await run_report(build_summary_spec(), chat_id)

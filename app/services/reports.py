@@ -1,38 +1,33 @@
 """Единый пайплайн LLM-отчётов: fetch → guard → prompt → complete → result.
 
-summary.py и strategy.py собирают свой ``ReportSpec`` (параметры конвейера)
-и вызывают ``run_report`` — весь конвейер реализован здесь ровно один раз.
-Зависимости (``get_chat``, ``complete``) — параметры с прод-дефолтами (FR-5):
-тесты подставляют фейки, не трогая модульные глобалы.
+summary.py/strategy.py собирают свой ``ReportSpec`` и вызывают ``run_report`` —
+конвейер реализован здесь один раз. ``get_chat``/``complete`` — параметры с
+прод-дефолтами (FR-5): тесты подставляют фейки, не трогая модульные глобалы.
 """
 
-import logging
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from ..models import get_chat_by_id
-from .completion import CompleteFn, CompletionError
+from .completion import CompleteFn, CompletionError, log_completion_failure
 from .openrouter import complete as openrouter_complete
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class ReportSpec:
-    """Параметры одного вида отчёта (summary/strategy/...).
-
-    ``fetch`` получает данные по ``chat_id``; ``build_prompt`` превращает
-    (chat, данные) в (промпт, доп. поля результата); ``build_result`` собирает
-    итоговый dict для каждого исхода конвейера:
-    outcome ∈ {"not_found", "empty", "llm_failure", "success"}.
-    """
+    """Параметры одного вида отчёта. ``not_found_result``/``empty_result`` — готовые
+    dict'и; ``build_failure``/``build_success`` строят результат из ``extra``
+    (доп. поля, вторая часть кортежа ``build_prompt``) и текста LLM (успех)."""
 
     fetch: Callable[[int], Awaitable[List[Dict[str, Any]]]]
     build_prompt: Callable[[Dict[str, Any], List[Dict[str, Any]]], tuple]
     system_prompt: str
     max_tokens: int
     timeout: float
-    build_result: Callable[..., Dict[str, Any]]
+    not_found_result: Dict[str, Any]
+    empty_result: Dict[str, Any]
+    build_failure: Callable[[Dict[str, Any]], Dict[str, Any]]
+    build_success: Callable[[Dict[str, Any], str], Dict[str, Any]]
 
 
 async def run_report(
@@ -45,11 +40,11 @@ async def run_report(
     """Прогоняет chat_id через конвейер ``spec`` и возвращает итоговый dict."""
     chat = await get_chat(chat_id)
     if chat is None:
-        return spec.build_result("not_found")
+        return dict(spec.not_found_result)
 
     messages = await spec.fetch(chat_id)
     if not messages:
-        return spec.build_result("empty")
+        return dict(spec.empty_result)
 
     prompt, extra = spec.build_prompt(chat, messages)
 
@@ -61,7 +56,7 @@ async def run_report(
             timeout=spec.timeout,
         )
     except CompletionError as e:
-        logger.error(f"LLM completion failed (kind={e.kind})")
-        return spec.build_result("llm_failure", extra=extra)
+        log_completion_failure(e)
+        return spec.build_failure(extra)
 
-    return spec.build_result("success", extra=extra, text=text)
+    return spec.build_success(extra, text)

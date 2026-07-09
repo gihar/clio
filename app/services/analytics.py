@@ -1,12 +1,17 @@
-"""Сервис аналитики активности чатов."""
+"""Сервис аналитики активности чатов.
+
+Не идёт через run_report: LLM опционален (total == 0 → успех без вызова LLM)
+и отказ LLM не фатален (success остаётся True). Использует тот же
+complete()-seam и log_completion_failure, что и run_report."""
 
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any, List
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from ..message_reads.digest import get_daily_message_counts
 from ..models import get_chat_by_id
-from .openrouter import generate_completion
+from .completion import CompleteFn, CompletionError, log_completion_failure
+from .openrouter import complete as openrouter_complete
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +30,8 @@ ANALYTICS_PROMPT_TEMPLATE = """Дай краткий комментарий (2-3
 - Возможные причины (день недели, выходные и т.д.)
 
 Будь лаконичен, максимум 50 слов."""
+
+LLM_FAILURE_ERROR = "Не удалось получить AI-комментарий"
 
 
 def _fill_missing_days(daily_counts: List[Dict[str, Any]], days: int = 7) -> List[Dict[str, Any]]:
@@ -49,42 +56,32 @@ def _fill_missing_days(daily_counts: List[Dict[str, Any]], days: int = 7) -> Lis
     current = start_date
     while current <= today:
         date_str = current.isoformat()
-        result.append({
-            "date": date_str,
-            "count": existing.get(date_str, 0)
-        })
+        result.append({"date": date_str, "count": existing.get(date_str, 0)})
         current += timedelta(days=1)
 
     return result
 
 
-async def generate_chat_analytics(chat_id: int) -> Dict[str, Any]:
-    """Генерирует аналитику чата за последнюю неделю.
-
-    Returns:
-        Dict с полями: success, chat_type, period, daily_messages, total, average, ai_comment, error
-    """
-    # Получаем информацию о чате
-    chat = await get_chat_by_id(chat_id)
+async def run_analytics_report(
+    chat_id: int,
+    *,
+    get_chat: Callable[[int], Awaitable[Optional[Dict[str, Any]]]] = get_chat_by_id,
+    fetch_daily_counts: Callable[[int, int], Awaitable[List[Dict[str, Any]]]] = get_daily_message_counts,
+    complete: CompleteFn = openrouter_complete,
+) -> Dict[str, Any]:
+    """Считает аналитику чата за неделю; зависимости — параметры с прод-дефолтами."""
+    chat = await get_chat(chat_id)
     if not chat:
-        return {
-            "success": False,
-            "error": "Чат не найден",
-        }
+        return {"success": False, "error": "Чат не найден"}
 
     chat_type = chat.get("type", "group")
 
-    # Получаем статистику по дням
-    daily_counts = await get_daily_message_counts(chat_id, days=7)
-
-    # Заполняем пропущенные дни
+    daily_counts = await fetch_daily_counts(chat_id, 7)
     daily_messages = _fill_missing_days(daily_counts, days=7)
 
-    # Вычисляем метрики
     total = sum(d["count"] for d in daily_messages)
     average = total / 7 if daily_messages else 0
 
-    # Период
     if daily_messages:
         date_from = daily_messages[0]["date"]
         date_to = daily_messages[-1]["date"]
@@ -92,22 +89,13 @@ async def generate_chat_analytics(chat_id: int) -> Dict[str, Any]:
     else:
         period = "нет данных"
 
-    # Если нет сообщений, возвращаем без AI-комментария
+    base_result = {"success": True, "chat_type": chat_type, "period": period, "daily_messages": daily_messages, "total": total, "average": average}
+
+    # Если нет сообщений, возвращаем без AI-комментария и без вызова LLM.
     if total == 0:
-        return {
-            "success": True,
-            "chat_type": chat_type,
-            "period": period,
-            "daily_messages": daily_messages,
-            "total": total,
-            "average": average,
-            "ai_comment": None,
-            "error": None,
-        }
+        return {**base_result, "ai_comment": None, "error": None}
 
-    # Генерируем AI-комментарий
     daily_data = ", ".join([f"{d['date']}: {d['count']}" for d in daily_messages])
-
     prompt = ANALYTICS_PROMPT_TEMPLATE.format(
         chat_type="канал" if chat_type == "channel" else "группа",
         date_from=date_from,
@@ -117,21 +105,21 @@ async def generate_chat_analytics(chat_id: int) -> Dict[str, Any]:
         average=average,
     )
 
-    logger.info(f"Generating analytics for chat {chat_id}")
-    ai_comment = await generate_completion(
-        prompt=prompt,
-        system_prompt=ANALYTICS_SYSTEM_PROMPT,
-        max_tokens=150,
-        timeout=30.0,
-    )
+    try:
+        ai_comment = await complete(
+            prompt,
+            system_prompt=ANALYTICS_SYSTEM_PROMPT,
+            max_tokens=150,
+            timeout=30.0,
+        )
+    except CompletionError as e:
+        log_completion_failure(e)
+        return {**base_result, "ai_comment": None, "error": LLM_FAILURE_ERROR}
 
-    return {
-        "success": True,
-        "chat_type": chat_type,
-        "period": period,
-        "daily_messages": daily_messages,
-        "total": total,
-        "average": average,
-        "ai_comment": ai_comment,
-        "error": None if ai_comment else "Не удалось получить AI-комментарий",
-    }
+    return {**base_result, "ai_comment": ai_comment, "error": None}
+
+
+async def generate_chat_analytics(chat_id: int) -> Dict[str, Any]:
+    """Генерирует аналитику чата за последнюю неделю."""
+    logger.info(f"Generating analytics for chat {chat_id}")
+    return await run_analytics_report(chat_id)

@@ -56,10 +56,7 @@ def format_messages_for_strategy(messages: List[Dict[str, Any]]) -> str:
 
 
 def build_strategy_spec(period: str, fetch: Optional[Callable] = None) -> ReportSpec:
-    """Собирает ReportSpec для стратегии за ``period`` (уже провалидирован).
-
-    ``fetch`` подменяется в тестах.
-    """
+    """Собирает ReportSpec для стратегии за ``period`` (уже провалидирован). ``fetch`` подменяется в тестах."""
     days = 7 if period == "week" else 30
     period_ru = "неделю" if period == "week" else "месяц"
     empty_error = f"Нет сообщений за последн{'юю неделю' if period == 'week' else 'ий месяц'}"
@@ -83,22 +80,8 @@ def build_strategy_spec(period: str, fetch: Optional[Callable] = None) -> Report
             count=len(messages),
             messages=format_messages_for_strategy(list(reversed(messages))),
         )
-        extra = {
-            "chat_type": chat_type,
-            "period": period,
-            "date_range": date_range,
-            "messages_analyzed": len(messages),
-        }
+        extra = {"chat_type": chat_type, "period": period, "date_range": date_range, "messages_analyzed": len(messages)}
         return prompt, extra
-
-    def build_result(outcome: str, extra: Optional[Dict[str, Any]] = None, text: Optional[str] = None) -> Dict[str, Any]:
-        if outcome == "not_found":
-            return {"success": False, "error": "Чат не найден"}
-        if outcome == "empty":
-            return {"success": False, "error": empty_error}
-        if outcome == "llm_failure":
-            return {"success": False, "error": LLM_FAILURE_ERROR, **extra}
-        return {"success": True, "error": None, "report": text, **extra}
 
     return ReportSpec(
         fetch=fetch or functools.partial(get_messages_for_period, days=days, limit=500),
@@ -106,20 +89,15 @@ def build_strategy_spec(period: str, fetch: Optional[Callable] = None) -> Report
         system_prompt=STRATEGY_SYSTEM_PROMPT,
         max_tokens=800,
         timeout=45.0,
-        build_result=build_result,
+        not_found_result={"success": False, "error": "Чат не найден"},
+        empty_result={"success": False, "error": empty_error},
+        build_failure=lambda extra: {"success": False, "error": LLM_FAILURE_ERROR, **extra},
+        build_success=lambda extra, text: {"success": True, "error": None, "report": text, **extra},
     )
 
 
 async def generate_content_strategy(chat_id: int, period: str = "week") -> Dict[str, Any]:
-    """Генерирует контент-стратегию для чата.
-
-    Args:
-        chat_id: ID чата
-        period: "week" (7 дней) или "month" (30 дней)
-
-    Returns:
-        Dict с полями: success, chat_type, period, date_range, messages_analyzed, report, error
-    """
+    """Генерирует контент-стратегию для чата. ``period``: "week" (7 дней) или "month" (30 дней)."""
     if period not in ("week", "month"):
         return {"success": False, "error": INVALID_PERIOD_ERROR}
 

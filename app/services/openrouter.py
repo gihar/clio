@@ -27,21 +27,9 @@ async def complete(
 ) -> str:
     """Генерирует ответ через OpenRouter API.
 
-    Args:
-        prompt: Пользовательский промпт
-        system_prompt: Системный промпт (опционально)
-        max_tokens: Максимальное количество токенов в ответе
-        timeout: Таймаут запроса в секундах
-        transport: Тестовый seam для httpx (например, httpx.MockTransport);
-            в проде не передаётся — используется реальный транспорт.
-
-    Returns:
-        Текст ответа.
-
-    Raises:
-        CompletionError: ключ не настроен (``not_configured``), таймаут
-            (``timeout``), HTTP-ошибка (``http_error``) или неразбираемый
-            ответ (``bad_response``).
+    ``transport`` — тестовый seam для httpx.MockTransport, в проде не передаётся.
+    Raises CompletionError(kind=...) вместо возврата None: not_configured,
+    timeout, http_error или bad_response.
     """
     config = get_config()
 

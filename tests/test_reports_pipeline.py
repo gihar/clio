@@ -21,11 +21,10 @@ def _spec(**overrides) -> ReportSpec:
         system_prompt="system",
         max_tokens=100,
         timeout=10.0,
-        build_result=lambda outcome, extra=None, text=None: {
-            "outcome": outcome,
-            "extra": extra,
-            "text": text,
-        },
+        not_found_result={"outcome": "not_found", "extra": None, "text": None},
+        empty_result={"outcome": "empty", "extra": None, "text": None},
+        build_failure=lambda extra: {"outcome": "llm_failure", "extra": extra, "text": None},
+        build_success=lambda extra, text: {"outcome": "success", "extra": extra, "text": text},
     )
     defaults.update(overrides)
     return ReportSpec(**defaults)
