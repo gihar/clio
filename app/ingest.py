@@ -1,6 +1,7 @@
 """Приём данных из Telegram: разбор сообщений и запись пользователей/чатов/сообщений."""
 
 import json
+from datetime import datetime
 from typing import Optional
 
 from telegram import User, Chat, Message, MessageOriginChat, MessageOriginChannel
@@ -99,6 +100,84 @@ async def save_chat(chat: Chat):
             chat.type,
             chat.title,
             chat.username,
+        ))
+
+
+async def record_message(
+    *,
+    chat_id: int,
+    message_id: int,
+    user_id: Optional[int],
+    sent_at: datetime,
+    message_type: str = "text",
+    text: Optional[str] = None,
+    caption: Optional[str] = None,
+    reply_to_message_id: Optional[int] = None,
+    forward_from_chat_id: Optional[int] = None,
+    raw_message: Optional[dict] = None,
+) -> None:
+    """Записывает сообщение плоскими параметрами (тестопригодный seam, PRD-04).
+
+    Дедупликация по составному ключу (chat_id, message_id): повторный вызов
+    с теми же значениями — no-op. НЕ апсертит users/chats — FK-констрейнты
+    остаются ответственностью вызывающего.
+
+    Бросает ValueError, если sent_at не передан или message_type — пустая
+    строка (программная ошибка вызывающего, тише падать нельзя).
+    """
+    if sent_at is None:
+        raise ValueError("record_message: sent_at is required")
+    if not message_type:
+        raise ValueError("record_message: message_type must be a non-empty string")
+
+    async with get_cursor() as cur:
+        await cur.execute("""
+            INSERT INTO messages (
+                message_id, chat_id, user_id, message_type, text, caption,
+                reply_to_message_id, forward_from_chat_id, sent_at, raw_message
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (chat_id, message_id) DO NOTHING;
+        """, (
+            message_id,
+            chat_id,
+            user_id,
+            message_type,
+            text,
+            caption,
+            reply_to_message_id,
+            forward_from_chat_id,
+            sent_at,
+            json.dumps(raw_message) if raw_message is not None else None,
+        ))
+
+
+async def record_message_edit(
+    *,
+    chat_id: int,
+    message_id: int,
+    edited_at: datetime,
+    text: Optional[str] = None,
+    caption: Optional[str] = None,
+    raw_message: Optional[dict] = None,
+) -> None:
+    """Обновляет text/caption/edited_at существующего сообщения (PRD-04).
+
+    Тихий no-op, если строка (chat_id, message_id) не найдена — не создаёт
+    новую строку.
+    """
+    async with get_cursor() as cur:
+        await cur.execute("""
+            UPDATE messages
+            SET text = %s, caption = %s, edited_at = %s, raw_message = %s
+            WHERE chat_id = %s AND message_id = %s;
+        """, (
+            text,
+            caption,
+            edited_at,
+            json.dumps(raw_message) if raw_message is not None else None,
+            chat_id,
+            message_id,
         ))
 
 
