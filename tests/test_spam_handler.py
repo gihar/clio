@@ -16,7 +16,7 @@ from telegram import (
 )
 
 from app.bot.handlers import chat_member_handler
-from app.models import flag_spam_user
+from app.spam_flags import flag_spam_user
 from app.database import get_cursor
 
 CHAT = Chat(id=-100123, type="supergroup", title="Handler test")

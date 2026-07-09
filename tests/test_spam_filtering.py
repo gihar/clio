@@ -4,11 +4,8 @@ from datetime import datetime, timezone
 
 from telegram import User, Chat
 
-from app.models import (
-    flag_spam_user,
-    save_user,
-    save_chat,
-)
+from app.spam_flags import flag_spam_user
+from app.ingest import save_user, save_chat
 from app.message_reads.digest import (
     get_messages_for_summary,
     get_messages_for_period,

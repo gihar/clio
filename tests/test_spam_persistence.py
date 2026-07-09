@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from telegram import User, Chat
 
-from app.models import flag_spam_user
+from app.spam_flags import flag_spam_user
 from app.database import get_cursor
 
 

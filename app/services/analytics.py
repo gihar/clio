@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from ..message_reads.digest import get_daily_message_counts
-from ..models import get_chat_by_id
+from ..admin_reads import get_chat_by_id
 from .completion import CompleteFn, CompletionError, describe_completion_error
 from .openrouter import complete as openrouter_complete
 

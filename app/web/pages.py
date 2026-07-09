@@ -6,7 +6,7 @@ from aiohttp import web
 import aiohttp_jinja2
 
 from ..config import get_config
-from ..models import get_chat_by_id, get_chats_with_stats, get_dashboard_data, get_users
+from ..admin_reads import get_chat_by_id, get_chats_with_stats, get_dashboard_data, get_users
 from ..message_reads.raw import get_chat_messages
 from .auth import require_auth
 
