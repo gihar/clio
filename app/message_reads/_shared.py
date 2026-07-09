@@ -19,13 +19,14 @@ SPAM_EXCLUSION_SQL = """AND NOT EXISTS (
 # Единственное место, где формулируется каст временной метки к
 # "московскому" календарному дню.
 #
-# ИЗВЕСТНЫЙ БАГ, унаследованный из app/models.py бит-в-бит (сохранён
-# намеренно — FR-6 PRD-01 требует точного переноса поведения; фикс вне
-# скоупа, см. https://github.com/gihar/clio/issues/9): двойной каст
-# временной зоны на TIMESTAMPTZ-колонке ``sent_at`` исторически двигает
-# границу дня на 03:00 UTC (фактически UTC-3), а не на 21:00 UTC
-# предыдущего дня, как подразумевает "московский" (UTC+3) в названии.
-MOSCOW_DAY_SQL = f"(m.sent_at AT TIME ZONE 'UTC' AT TIME ZONE '{MOSCOW_TZ}')::date"
+# ИСПРАВЛЕНО (см. https://github.com/gihar/clio/issues/9): раньше здесь стоял
+# двойной каст временной зоны (`AT TIME ZONE 'UTC' AT TIME ZONE {MOSCOW_TZ}`) на
+# TIMESTAMPTZ-колонке ``sent_at`` — на TIMESTAMPTZ такая идиома даёт обратный
+# знак смещения, границу дня сдвигало на 03:00 UTC (фактически UTC-3) вместо
+# 21:00 UTC, и результат ещё и зависел от session TimeZone. Один каст
+# `AT TIME ZONE` на TIMESTAMPTZ даёт naive-timestamp в указанной локальной
+# зоне; его ::date детерминирован и не зависит от session TimeZone.
+MOSCOW_DAY_SQL = f"(m.sent_at AT TIME ZONE '{MOSCOW_TZ}')::date"
 
 # Единственное место, где перечислены колонки полной выборки сообщения
 # (используется всеми raw-запросами).
