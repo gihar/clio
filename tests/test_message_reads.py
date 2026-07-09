@@ -4,10 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 from telegram import User, Chat
 
-from app.ingest import save_user, save_chat
+from app.ingest import save_user, save_chat, record_message
 from app.message_reads.digest import get_messages_for_summary
 from app.message_reads.raw import get_chat_messages, get_chat_messages_by_date
-from app.database import get_cursor
 
 CHAT = Chat(id=-100555, type="supergroup", title="Message reads boundary test")
 ALICE = User(id=1, is_bot=False, first_name="Alice")
@@ -20,14 +19,14 @@ async def _insert_message(
     sent_at: datetime,
     message_type: str = "text",
 ):
-    async with get_cursor() as cur:
-        await cur.execute(
-            """
-            INSERT INTO messages (message_id, chat_id, user_id, message_type, text, sent_at)
-            VALUES (%s, %s, %s, %s, %s, %s);
-            """,
-            (message_id, CHAT.id, user_id, message_type, text, sent_at),
-        )
+    await record_message(
+        chat_id=CHAT.id,
+        message_id=message_id,
+        user_id=user_id,
+        sent_at=sent_at,
+        message_type=message_type,
+        text=text,
+    )
 
 
 async def test_summary_window_excludes_message_older_than_24h(db):

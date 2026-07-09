@@ -5,14 +5,13 @@ from datetime import datetime, timezone
 from telegram import User, Chat
 
 from app.spam_flags import flag_spam_user
-from app.ingest import save_user, save_chat
+from app.ingest import save_user, save_chat, record_message
 from app.message_reads.digest import (
     get_messages_for_summary,
     get_messages_for_period,
     get_daily_message_counts,
 )
 from app.message_reads.raw import get_chat_messages
-from app.database import get_cursor
 
 CHAT = Chat(id=-100777, type="supergroup", title="Filter test")
 ALICE = User(id=1, is_bot=False, first_name="Alice")
@@ -21,14 +20,13 @@ SPAMMER = User(id=999, is_bot=False, first_name="Spammer")
 
 async def _insert_message(message_id: int, user_id: int, text: str):
     """Вставляет текстовое сообщение 'сейчас' (попадает в окно 24ч)."""
-    async with get_cursor() as cur:
-        await cur.execute(
-            """
-            INSERT INTO messages (message_id, chat_id, user_id, message_type, text, sent_at)
-            VALUES (%s, %s, %s, 'text', %s, NOW());
-            """,
-            (message_id, CHAT.id, user_id, text),
-        )
+    await record_message(
+        chat_id=CHAT.id,
+        message_id=message_id,
+        user_id=user_id,
+        sent_at=datetime.now(timezone.utc),
+        text=text,
+    )
 
 
 async def _seed_chat_with_flagged_spammer():
@@ -92,13 +90,14 @@ async def test_flag_is_chat_scoped(db):
     await save_chat(CHAT)
     await save_chat(chat_b)
     await save_user(SPAMMER)
-    async with get_cursor() as cur:
-        await cur.execute(
-            "INSERT INTO messages (message_id, chat_id, user_id, message_type, text, sent_at) "
-            "VALUES (10, %s, %s, 'text', 'msg in chat A', NOW()), "
-            "(11, %s, %s, 'text', 'msg in chat B', NOW());",
-            (CHAT.id, SPAMMER.id, chat_b.id, SPAMMER.id),
-        )
+    await record_message(
+        chat_id=CHAT.id, message_id=10, user_id=SPAMMER.id,
+        sent_at=datetime.now(timezone.utc), text="msg in chat A",
+    )
+    await record_message(
+        chat_id=chat_b.id, message_id=11, user_id=SPAMMER.id,
+        sent_at=datetime.now(timezone.utc), text="msg in chat B",
+    )
     # мутим спамера ТОЛЬКО в чате A
     await flag_spam_user(
         chat_id=CHAT.id, user_id=SPAMMER.id,
