@@ -182,53 +182,43 @@ async def record_message_edit(
 
 
 async def save_message(msg: Message, is_edit: bool = False):
-    """Сохраняет сообщение в базу данных."""
+    """Сохраняет сообщение в базу данных.
+
+    Telegram-адаптер поверх record_message/record_message_edit (PRD-04):
+    раскладывает telegram.Message в плоские колонки (тип сообщения,
+    forward_origin, edit_date) и делегирует запись.
+    """
     if not msg.from_user:
         return
-    
+
     # Сохраняем пользователя и чат
     await save_user(msg.from_user)
     await save_chat(msg.chat)
-    
-    message_type = detect_message_type(msg)
+
     text_content = msg.text or None
     caption = msg.caption or None
-    reply_to_id = msg.reply_to_message.message_id if msg.reply_to_message else None
-    forward_chat_id = get_forward_chat_id(msg)
-    
-    async with get_cursor() as cur:
-        if is_edit:
-            # Обновляем существующее сообщение
-            await cur.execute("""
-                UPDATE messages 
-                SET text = %s, caption = %s, edited_at = %s, raw_message = %s
-                WHERE chat_id = %s AND message_id = %s;
-            """, (
-                text_content,
-                caption,
-                msg.edit_date,
-                json.dumps(msg.to_dict()),
-                msg.chat_id,
-                msg.message_id,
-            ))
-        else:
-            # Вставляем новое сообщение
-            await cur.execute("""
-                INSERT INTO messages (
-                    message_id, chat_id, user_id, message_type, text, caption,
-                    reply_to_message_id, forward_from_chat_id, sent_at, raw_message
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (chat_id, message_id) DO NOTHING;
-            """, (
-                msg.message_id,
-                msg.chat_id,
-                msg.from_user.id,
-                message_type,
-                text_content,
-                caption,
-                reply_to_id,
-                forward_chat_id,
-                msg.date,
-                json.dumps(msg.to_dict()),
-            ))
+    raw_message = msg.to_dict()
+
+    if is_edit:
+        await record_message_edit(
+            chat_id=msg.chat_id,
+            message_id=msg.message_id,
+            edited_at=msg.edit_date,
+            text=text_content,
+            caption=caption,
+            raw_message=raw_message,
+        )
+    else:
+        reply_to_id = msg.reply_to_message.message_id if msg.reply_to_message else None
+        await record_message(
+            chat_id=msg.chat_id,
+            message_id=msg.message_id,
+            user_id=msg.from_user.id,
+            sent_at=msg.date,
+            message_type=detect_message_type(msg),
+            text=text_content,
+            caption=caption,
+            reply_to_message_id=reply_to_id,
+            forward_from_chat_id=get_forward_chat_id(msg),
+            raw_message=raw_message,
+        )
