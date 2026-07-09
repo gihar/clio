@@ -8,7 +8,7 @@ summary.py/strategy.py собирают свой ``ReportSpec`` и вызыва�
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from ..models import get_chat_by_id
+from ..admin_reads import get_chat_by_id
 from .completion import CompleteFn, CompletionError, describe_completion_error
 from .openrouter import complete as openrouter_complete
 

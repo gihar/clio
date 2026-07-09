@@ -8,13 +8,13 @@ from aiohttp import web
 
 from ..config import get_config
 from ..database import ping
-from ..models import (
+from ..admin_reads import (
     get_stats,
     get_chats_with_stats,
     get_chat_by_id,
     get_dashboard_data,
-    get_join_requests,
 )
+from ..join_requests import get_join_requests
 from ..message_reads.raw import (
     get_chat_messages,
     get_chat_messages_by_date,

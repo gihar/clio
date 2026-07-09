@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from telegram import User, Chat
 
-from app.models import save_user, save_chat
+from app.ingest import save_user, save_chat
 from app.message_reads.digest import get_messages_for_summary
 from app.message_reads.raw import get_chat_messages, get_chat_messages_by_date
 from app.database import get_cursor

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from app.config import get_config
 from app.database import init_pool, close_pool
-from app.models import init_database
+from app.schema import init_database
 from app.bot.bot import create_bot, start_bot, stop_bot
 from app.bot.handlers import clean_join_requests_job
 from app.web.routes import create_web_app, start_web_server

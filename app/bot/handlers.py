@@ -10,14 +10,13 @@ from telegram.ext import ContextTypes
 from telegram.error import BadRequest, TelegramError
 
 from ..config import get_config
-from ..models import (
-    save_message,
+from ..ingest import save_message
+from ..join_requests import (
     save_join_request_fields,
     get_pending_fresh_join_requests,
     mark_join_requests_status,
-    flag_spam_user,
-    unflag_spam_user,
 )
+from ..spam_flags import flag_spam_user, unflag_spam_user
 from .spam_detection import is_spam_mute, is_unmute
 
 logger = logging.getLogger(__name__)

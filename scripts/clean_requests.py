@@ -26,7 +26,8 @@ from telegram import Bot
 
 from app.config import get_config
 from app.database import init_pool, close_pool
-from app.models import init_database, get_pending_fresh_join_requests
+from app.schema import init_database
+from app.join_requests import get_pending_fresh_join_requests
 from app.bot.handlers import process_pending_fresh_join_requests
 
 

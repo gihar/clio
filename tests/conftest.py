@@ -10,7 +10,7 @@ import os
 import pytest_asyncio
 
 from app.database import init_pool, close_pool, get_cursor
-from app.models import init_database
+from app.schema import init_database
 
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
