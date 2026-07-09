@@ -91,7 +91,8 @@ def build_strategy_spec(period: str, fetch: Optional[Callable] = None) -> Report
         timeout=45.0,
         not_found_result={"success": False, "error": "Чат не найден"},
         empty_result={"success": False, "error": empty_error},
-        build_failure=lambda extra: {"success": False, "error": LLM_FAILURE_ERROR, **extra},
+        llm_failure_message=LLM_FAILURE_ERROR,
+        build_failure=lambda extra, message: {"success": False, "error": message, **extra},
         build_success=lambda extra, text: {"success": True, "error": None, "report": text, **extra},
     )
 

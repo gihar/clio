@@ -23,7 +23,8 @@ def _spec(**overrides) -> ReportSpec:
         timeout=10.0,
         not_found_result={"outcome": "not_found", "extra": None, "text": None},
         empty_result={"outcome": "empty", "extra": None, "text": None},
-        build_failure=lambda extra: {"outcome": "llm_failure", "extra": extra, "text": None},
+        llm_failure_message="llm failed message",
+        build_failure=lambda extra, message: {"outcome": "llm_failure", "extra": extra, "text": message},
         build_success=lambda extra, text: {"outcome": "success", "extra": extra, "text": text},
     )
     defaults.update(overrides)
@@ -67,13 +68,13 @@ async def test_run_report_returns_success_result_with_llm_text():
 
 
 @pytest.mark.parametrize("kind", ["timeout", "http_error", "not_configured", "bad_response"])
-async def test_run_report_maps_any_completion_error_kind_to_llm_failure(kind):
+async def test_run_report_maps_any_completion_error_kind_to_the_same_llm_failure_message(kind):
     async def failing_complete(prompt, *, system_prompt=None, max_tokens=1000, timeout=30.0):
         raise CompletionError(kind=kind)
 
     result = await run_report(_spec(), chat_id=1, get_chat=_fake_get_chat_found, complete=failing_complete)
 
-    assert result == {"outcome": "llm_failure", "extra": {"count": 1}, "text": None}
+    assert result == {"outcome": "llm_failure", "extra": {"count": 1}, "text": "llm failed message"}
 
 
 async def test_run_report_does_not_fetch_messages_when_chat_not_found():

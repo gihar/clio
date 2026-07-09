@@ -71,7 +71,8 @@ def build_summary_spec(fetch: Optional[Callable] = None) -> ReportSpec:
         timeout=30.0,
         not_found_result=NOT_FOUND_RESULT,
         empty_result=EMPTY_RESULT,
-        build_failure=lambda extra: {"success": False, "error": LLM_FAILURE_ERROR, "summary": None, **extra},
+        llm_failure_message=LLM_FAILURE_ERROR,
+        build_failure=lambda extra, message: {"success": False, "error": message, "summary": None, **extra},
         build_success=lambda extra, text: {"success": True, "error": None, "summary": text, **extra},
     )
 

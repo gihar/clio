@@ -18,7 +18,12 @@ class CompletionError(Exception):
         super().__init__(message or kind)
 
 
-def log_completion_failure(error: CompletionError) -> None:
-    """Единственное место, логирующее отказ complete() — общее для run_report
-    (LLM обязателен) и вызывающих, где отказ не фатален (analytics)."""
-    logger.error(f"LLM completion failed (kind={error.kind})")
+def describe_completion_error(error: CompletionError, message: str) -> str:
+    """Единственное место конвертации CompletionError в текст для результата.
+
+    ``kind`` уходит в лог (для диагностики); пользователю — ``message``,
+    переданный report-специфично вызывающим (тексты сегодня не зависят от
+    ``kind``, как и раньше). Общее для run_report и analytics.
+    """
+    logger.error(f"LLM completion failed (kind={error.kind}): {error}")
+    return message

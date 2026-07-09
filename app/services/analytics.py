@@ -2,7 +2,7 @@
 
 Не идёт через run_report: LLM опционален (total == 0 → успех без вызова LLM)
 и отказ LLM не фатален (success остаётся True). Использует тот же
-complete()-seam и log_completion_failure, что и run_report."""
+complete()-seam и describe_completion_error, что и run_report."""
 
 import logging
 from datetime import datetime, timedelta
@@ -10,7 +10,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from ..message_reads.digest import get_daily_message_counts
 from ..models import get_chat_by_id
-from .completion import CompleteFn, CompletionError, log_completion_failure
+from .completion import CompleteFn, CompletionError, describe_completion_error
 from .openrouter import complete as openrouter_complete
 
 logger = logging.getLogger(__name__)
@@ -113,8 +113,7 @@ async def run_analytics_report(
             timeout=30.0,
         )
     except CompletionError as e:
-        log_completion_failure(e)
-        return {**base_result, "ai_comment": None, "error": LLM_FAILURE_ERROR}
+        return {**base_result, "ai_comment": None, "error": describe_completion_error(e, LLM_FAILURE_ERROR)}
 
     return {**base_result, "ai_comment": ai_comment, "error": None}
 

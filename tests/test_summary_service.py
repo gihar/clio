@@ -6,7 +6,10 @@ from datetime import datetime
 
 import pytest
 
+import app.config as config_module
+from app.config import Config
 from app.services.completion import CompletionError
+from app.services.openrouter import complete as real_openrouter_complete
 from app.services.reports import run_report
 from app.services.summary import build_summary_spec, format_messages_for_prompt
 
@@ -103,3 +106,18 @@ def test_format_messages_for_prompt_truncates_to_500_chars():
     formatted = format_messages_for_prompt(messages)
 
     assert formatted == f"[10:00] @alice: {'x' * 500}"
+
+
+async def test_summary_with_real_openrouter_adapter_does_not_raise_when_not_configured():
+    """Сервис, вызванный напрямую (не через routes.py, где есть guard 503),
+    не должен падать необработанным исключением при отсутствующем ключе."""
+    previous_config = config_module.config
+    config_module.config = Config(telegram_token="t", database_url="postgresql://x", openrouter_api_key=None)
+    try:
+        spec = build_summary_spec(fetch=_fetch(MESSAGES))
+        result = await run_report(spec, chat_id=1, get_chat=_fake_get_chat, complete=real_openrouter_complete)
+    finally:
+        config_module.config = previous_config
+
+    assert result["success"] is False
+    assert result["error"] == "Не удалось сгенерировать саммари. Попробуйте позже."

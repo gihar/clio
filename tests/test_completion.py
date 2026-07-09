@@ -9,7 +9,7 @@ import pytest
 
 import app.config as config_module
 from app.config import Config
-from app.services.completion import CompletionError
+from app.services.completion import CompletionError, describe_completion_error
 from app.services.openrouter import complete
 
 
@@ -82,6 +82,16 @@ async def test_complete_raises_bad_response_kind_on_malformed_json():
         await complete("hello", transport=httpx.MockTransport(handler))
 
     assert exc_info.value.kind == "bad_response"
+
+
+@pytest.mark.parametrize("kind", ["timeout", "http_error", "not_configured", "bad_response"])
+def test_describe_completion_error_returns_caller_message_regardless_of_kind(kind, caplog):
+    error = CompletionError(kind=kind)
+
+    result = describe_completion_error(error, "текст для пользователя")
+
+    assert result == "текст для пользователя"
+    assert kind in caplog.text
 
 
 async def test_complete_raises_bad_response_kind_on_missing_choices():

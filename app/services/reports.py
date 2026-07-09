@@ -9,15 +9,17 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from ..models import get_chat_by_id
-from .completion import CompleteFn, CompletionError, log_completion_failure
+from .completion import CompleteFn, CompletionError, describe_completion_error
 from .openrouter import complete as openrouter_complete
 
 
 @dataclass(frozen=True)
 class ReportSpec:
     """Параметры одного вида отчёта. ``not_found_result``/``empty_result`` — готовые
-    dict'и; ``build_failure``/``build_success`` строят результат из ``extra``
-    (доп. поля, вторая часть кортежа ``build_prompt``) и текста LLM (успех)."""
+    dict'и; ``llm_failure_message`` — report-специфичный текст отказа LLM (не
+    зависит от kind); ``build_failure``/``build_success`` строят результат из
+    ``extra`` (доп. поля, вторая часть кортежа ``build_prompt``) и текста (сообщения
+    об отказе или ответа LLM)."""
 
     fetch: Callable[[int], Awaitable[List[Dict[str, Any]]]]
     build_prompt: Callable[[Dict[str, Any], List[Dict[str, Any]]], tuple]
@@ -26,7 +28,8 @@ class ReportSpec:
     timeout: float
     not_found_result: Dict[str, Any]
     empty_result: Dict[str, Any]
-    build_failure: Callable[[Dict[str, Any]], Dict[str, Any]]
+    llm_failure_message: str
+    build_failure: Callable[[Dict[str, Any], str], Dict[str, Any]]
     build_success: Callable[[Dict[str, Any], str], Dict[str, Any]]
 
 
@@ -56,7 +59,6 @@ async def run_report(
             timeout=spec.timeout,
         )
     except CompletionError as e:
-        log_completion_failure(e)
-        return spec.build_failure(extra)
+        return spec.build_failure(extra, describe_completion_error(e, spec.llm_failure_message))
 
     return spec.build_success(extra, text)
